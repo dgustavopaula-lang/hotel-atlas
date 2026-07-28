@@ -321,6 +321,7 @@ tbody tr:hover td{background:rgba(255,255,255,.03);}
     </div>
   </div>
   <div class="header-right">
+    <div style="font-size:11px;color:var(--green);" id="sync-badge">✓ Salvo</div>
     <div class="mode-badge" id="mode-badge">Diurno</div>
     <div class="clock" id="clock">00:00:00</div>
   </div>
@@ -750,9 +751,11 @@ tbody tr:hover td{background:rgba(255,255,255,.03);}
 <!-- ═══════════════════════ SCRIPT ═══════════════════════ -->
 <script>
 /* ══════════════════════════════════════════════
-   BANCO DE DADOS — localStorage
+   BANCO DE DADOS — JSONBin.io (nuvem)
 ══════════════════════════════════════════════ */
-const CHAVE = 'atlas-hotel-v1';
+const BIN_ID  = '6a68a746f5f4af5e29ccd0f1';
+const API_KEY = '$2a$10$q0GBCuzwmIhNxRLTQMc86uL1ZZdraT5cgayj5t.i3TZOjDzyZmlTC';
+const BIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
 let db = {
   quartos: gerarQuartos(),
@@ -763,13 +766,16 @@ let db = {
   logGeral: []
 };
 
+let _salvando = false;
+let _pendente = false;
+
 function gerarQuartos() {
   const q = [];
   for (let i = 101; i <= 115; i++) {
     q.push({
       num: String(i),
       tipo: i <= 105 ? 'Standard' : i <= 110 ? 'Superior' : 'Luxo',
-      status: 'vago',       // vago | ocupado | fora | retornou | limpeza
+      status: 'vago',
       hospedeId: null,
       hospedeName: '',
       time: ''
@@ -778,20 +784,50 @@ function gerarQuartos() {
   return q;
 }
 
-function salvar() {
-  localStorage.setItem(CHAVE, JSON.stringify(db));
+function mostrarSalvando(ativo) {
+  let el = document.getElementById('sync-badge');
+  if (!el) return;
+  el.textContent = ativo ? '⟳ Salvando...' : '✓ Salvo';
+  el.style.color = ativo ? 'var(--yellow)' : 'var(--green)';
 }
 
-function carregar() {
-  const raw = localStorage.getItem(CHAVE);
-  if (raw) {
-    try {
-      const salvo = JSON.parse(raw);
-      db = { ...db, ...salvo };
-      // garante que quartos inexistentes apareçam
-      if (!db.quartos || db.quartos.length === 0) db.quartos = gerarQuartos();
-    } catch(e) { db.quartos = gerarQuartos(); }
+async function salvar() {
+  if (_salvando) { _pendente = true; return; }
+  _salvando = true;
+  mostrarSalvando(true);
+  try {
+    await fetch(BIN_URL, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': API_KEY
+      },
+      body: JSON.stringify(db)
+    });
+  } catch(e) {
+    console.error('Erro ao salvar:', e);
   }
+  _salvando = false;
+  mostrarSalvando(false);
+  if (_pendente) { _pendente = false; salvar(); }
+}
+
+async function carregar() {
+  mostrarSalvando(true);
+  try {
+    const res  = await fetch(BIN_URL + '/latest', {
+      headers: { 'X-Master-Key': API_KEY }
+    });
+    const json = await res.json();
+    const salvo = json.record;
+    if (salvo && typeof salvo === 'object') {
+      db = { ...db, ...salvo };
+      if (!db.quartos || db.quartos.length === 0) db.quartos = gerarQuartos();
+    }
+  } catch(e) {
+    console.error('Erro ao carregar:', e);
+  }
+  mostrarSalvando(false);
 }
 
 /* ══════════════════════════════════════════════
@@ -1435,14 +1471,16 @@ function soundConfirmacao(){
 /* ══════════════════════════════════════════════
    INICIALIZAÇÃO
 ══════════════════════════════════════════════ */
-carregar();
-renderPainel();
-renderHospedes();
-renderReservas();
-renderFinanceiro();
-renderGovernanca();
-renderNoturno();
-popularSelectHospedes();
+(async () => {
+  await carregar();
+  renderPainel();
+  renderHospedes();
+  renderReservas();
+  renderFinanceiro();
+  renderGovernanca();
+  renderNoturno();
+  popularSelectHospedes();
+})();
 
 // Parâmetros URL → tela do hóspede via QR
 const urlParams = new URLSearchParams(location.search);
